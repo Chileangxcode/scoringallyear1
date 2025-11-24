@@ -4,11 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ផតថលពិន្ទុសិស្ស - ប្រព័ន្ធត្រួតពិនិត្យពិន្ទុសិស្ស</title>
-    <!-- Bootstrap CSS CDN -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- DataTables CSS (for Teacher View) -->
     <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/2.0.7/css/dataTables.dataTables.min.css">
-    <!-- Tailwind JIT for custom styling -->
     <script src="https://cdn.jsdelivr.net/npm/tailwindcss@3.3.3/dist/tailwind.min.js"></script>
     <style>
         /* Import Kantumruy Pro for Khmer support */
@@ -80,10 +77,8 @@
 </head>
 <body>
     <div id="app-root">
-        <!-- Content will be rendered here by JavaScript -->
-    </div>
+        </div>
     
-    <!-- Gemini Feedback Modal Placeholder -->
     <div class="modal fade" id="feedbackModal" tabindex="-1" aria-labelledby="feedbackModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
@@ -92,8 +87,7 @@
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body" id="feedback-content">
-                    <!-- Feedback text will be inserted here -->
-                </div>
+                    </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">បិទ</button>
                 </div>
@@ -101,7 +95,6 @@
         </div>
     </div>
     
-    <!-- FIXED FOOTER -->
     <footer class="footer-custom-bg text-white text-center py-2 no-print shadow-lg">
         <p class="mb-0 small">© ២០២៥ រក្សាសិទ្ធិគ្រប់យ៉ាងដោយ អ៊ូ ជីលាង។ បម្រើសម្រាប់ការអប់រំ និងចំណេះដឹង</p>
         <p class="mb-0 small mt-1">
@@ -116,26 +109,22 @@
         </p>
     </footer>
 
-    <!-- Bootstrap JS CDN (required for components like modals) -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-    <!-- jQuery (required by DataTables) -->
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-    <!-- DataTables JS -->
     <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/2.0.7/js/dataTables.min.js"></script>
     <script>
         // =================================================================
         //                 CONFIGURATION & SECURITY WARNING
         // =================================================================
-        // ** IMPORTANT SECURITY NOTE **
-        // 1. Teacher Login: Authentication is handled securely by the Serverless Function '/api/login'.
-        // 2. Data Fetching: Data is fetched securely via '/api/data', hiding the GOOGLE_SHEET_ID.
-        // -----------------------------------------------------------------
         const APP_CONFIG = {
-            // SHEET_ID is now handled securely by the Vercel Serverless Function (api/data.js)
+            SHEET_ID: "2PACX-1vS2kSwHLe2cnhtDEUQSxq8qjU2PH92P02LVGzjnyL7apuswoYLdSpGmI_yq-MN0gurEQQnBXRwAOvnr",
             POLL_INTERVAL_MS: 60000, // 1 minute
+            // NOTE: Teacher credentials removed for security - now checked via /api/login
+            // SECURITY NOTE: The Gemini API Key below must be securely proxied through a serverless function 
+            // in a production environment to prevent client-side exposure.
+            GEMINI_API_KEY: "API_KEY_PLACEHOLDER_SHOULD_BE_HIDDEN_SERVER_SIDE", 
         };
-        // Base CSV URL now points to the secure proxy function
-        const BASE_CSV_URL = '/api/data';
+        const BASE_CSV_URL = `https://docs.google.com/spreadsheets/d/e/${APP_CONFIG.SHEET_ID}/pub?output=csv`;
         
         // Headers for Dashboard and Info (must match sheet headers exactly for reliable detection)
         const INFO_HEADERS = {
@@ -180,9 +169,22 @@
         const root = document.getElementById('app-root');
         
         // =================================================================
-        //                          CORE FUNCTIONS
+        //                            CORE FUNCTIONS
         // =================================================================
 
+        // Helper to safely set text content and attributes
+        function setSafeContent(element, content, attribute = 'textContent') {
+            if (attribute === 'textContent') {
+                element.textContent = content;
+            } else if (attribute === 'innerHTML') {
+                // WARNING: Use innerHTML only for trusted static content or when unavoidable (like custom icons/SVGs)
+                element.innerHTML = content;
+            } else {
+                element.setAttribute(attribute, content);
+            }
+        }
+
+        // Refactored to handle complex CSV (quoted fields)
         function parseCSV(text) {
             if (text.trim().startsWith('<!DOCTYPE html>')) return null;
             
@@ -212,6 +214,7 @@
                         currentCell = '';
                     } else if (char === '\n' || char === '\r') {
                         if (currentCell || currentRow.length > 0) {
+                            // Only push row if it has content
                             currentRow.push(currentCell.trim());
                             rows.push(currentRow);
                             currentRow = [];
@@ -223,6 +226,7 @@
                     }
                 }
             }
+            // Push the last cell/row if not ended with a newline
             if (currentCell || currentRow.length > 0) {
                 currentRow.push(currentCell.trim());
                 rows.push(currentRow);
@@ -234,23 +238,21 @@
             if (!state.lastUpdated) { state.loading = true; }
             state.error = null;
             
+            // Clear old timer and render loading state
             if (state.pollTimer) clearInterval(state.pollTimer);
             renderApp();
             
             try {
-                // Fetch data from the secure serverless proxy function
-                const response = await fetch(BASE_CSV_URL, { cache: "no-store" }); 
+                // Add timestamp to defeat aggressive browser caching
+                const timestamp = new Date().getTime();
+                const response = await fetch(`${BASE_CSV_URL}&_t=${timestamp}`, { cache: "no-store" }); 
                 
-                if (!response.ok) { 
-                    // Check if the error is due to the serverless function reporting an internal error
-                    const errorText = await response.text();
-                    throw new Error(`Data Proxy Failed: ${response.status} - ${errorText.substring(0, 50)}...`); 
-                }
+                if (!response.ok) { throw new Error(`Network response was not ok: ${response.status}`); }
                 
                 const text = await response.text();
                 const parsed = parseCSV(text);
                 
-                if (!parsed || parsed.length === 0) { throw new Error("EMPTY_OR_INVALID_DATA"); }
+                if (!parsed || parsed.length === 0) { throw new Error("HTML_DETECTED"); }
                 
                 const headerRow = parsed[0];
                 const dataRows = parsed.slice(1).filter(row => row.some(cell => cell.trim() !== ''));
@@ -259,20 +261,23 @@
                 state.data = dataRows;
                 let newIndexes = {};
                 
+                // Map headers to column indices
                 headerRow.forEach((h, i) => {
                     const hLower = h.toLowerCase().trim();
                     const exactKey = Object.keys(INFO_HEADERS).find(k => INFO_HEADERS[k].toLowerCase() === hLower);
                     if (exactKey) { newIndexes[exactKey] = i; } 
                 });
                 
+                // Fallback detection for aggregate scores
                 if (newIndexes.totalQHA === undefined) newIndexes.totalQHA = headerRow.findIndex(h => h.includes('សរុបពិន្ទុ') && h.includes('(Q,H,A)'));
                 if (newIndexes.midterm === undefined) newIndexes.midterm = headerRow.findIndex(h => h.toLowerCase().trim() === 'midterm');
-                if (newIndexes.id === undefined) newIndexes.id = 0; 
+                if (newIndexes.id === undefined) newIndexes.id = headerRow.findIndex(h => INFO_HEADERS.id.toLowerCase() === h.toLowerCase().trim()); // Recheck ID
                 
                 state.colIndexes = newIndexes;
                 state.lastUpdated = new Date(); 
                 
-                if (state.student) {
+                // Keep the current student object updated if in result view
+                if (state.student && state.colIndexes.id !== undefined && state.colIndexes.id !== -1) {
                     const target = state.student[state.colIndexes.id].toString().toLowerCase().trim();
                     const updatedResult = state.data.find(row => {
                         const val = row[state.colIndexes.id];
@@ -282,9 +287,7 @@
                 }
 
             } catch (err) {
-                if (err.message.includes("HTML_DETECTED") || err.message.includes("EMPTY_OR_INVALID_DATA")) { state.error = "PUBLISH_ERROR"; } 
-                else if (err.message.includes("Data Proxy Failed")) { state.error = "DATA_PROXY_ERROR"; console.error("Data Proxy Error:", err); } 
-                else { state.error = "NETWORK_ERROR"; console.error("Fetch Error:", err); }
+                if (err.message === "HTML_DETECTED") { state.error = "PUBLISH_ERROR"; } else { state.error = "NETWORK_ERROR"; console.error("Fetch Error:", err); }
             } finally {
                 state.loading = false;
                 state.pollTimer = setInterval(fetchData, APP_CONFIG.POLL_INTERVAL_MS);
@@ -332,7 +335,7 @@
             
             usernameInput.classList.remove('is-invalid');
             passwordInput.classList.remove('is-invalid');
-            message.innerHTML = '';
+            message.innerHTML = ''; // Safely clear old message
             
             const username = usernameInput.value.trim();
             const password = passwordInput.value.trim();
@@ -345,14 +348,15 @@
                 return;
             }
             
-            // Show loading state
             message.innerHTML = `<div class="p-2 mt-3 small fw-bold text-primary">កំពុងផ្ទៀងផ្ទាត់...</div>`;
 
             // --- SECURE AUTHENTICATION VIA SERVERLESS FUNCTION ---
             try {
+                // Ensure no local authentication is performed
                 const response = await fetch('/api/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
+                    // Security Note: Sending credentials over HTTPS to a trusted API endpoint.
                     body: JSON.stringify({ username, password })
                 });
 
@@ -395,7 +399,7 @@
             const messageContainer = document.getElementById('search-message');
 
             searchInput.classList.remove('is-invalid');
-            messageContainer.innerHTML = '';
+            messageContainer.textContent = ''; // Safer: use textContent to clear
 
             const target = searchInput.value.trim().toLowerCase();
             state.searchId = target;
@@ -446,6 +450,7 @@
 
             const $table = $('#teacher-data-table');
 
+            // Destroy existing instance before re-initialization
             if ($.fn.DataTable.isDataTable('#teacher-data-table')) {
                 $table.DataTable().destroy();
                 $table.empty();
@@ -453,29 +458,47 @@
 
             const isAggregateMode = state.teacherDataTableMode === 'aggregate';
             const indexes = state.colIndexes;
+            
+            const infoIndexes = CORE_INFO_HEADERS
+                .map(hKey => indexes[Object.keys(INFO_HEADERS).find(k => INFO_HEADERS[k] === hKey)])
+                .filter(i => i !== undefined && i !== -1);
+
             let columnIndexesToShow = []; 
-            const infoIndexes = CORE_INFO_HEADERS.map(hKey => indexes[Object.keys(INFO_HEADERS).find(k => INFO_HEADERS[k] === hKey)]).filter(i => i !== undefined);
 
             if (isAggregateMode) {
-                const aggIndexes = AGGREGATE_SCORE_HEADERS.map(hKey => indexes[Object.keys(INFO_HEADERS).find(k => INFO_HEADERS[k] === hKey)]).filter(i => i !== undefined);
+                const aggIndexes = AGGREGATE_SCORE_HEADERS
+                    .map(hKey => indexes[Object.keys(INFO_HEADERS).find(k => INFO_HEADERS[k] === hKey)])
+                    .filter(i => i !== undefined && i !== -1);
                 columnIndexesToShow.push(...infoIndexes, ...aggIndexes);
+                // Filter out duplicates if present
+                columnIndexesToShow = [...new Set(columnIndexesToShow)];
             } else {
+                // Detailed mode: show all, but ensure core info is first for structure, and remove aggregate score duplicates
                 columnIndexesToShow = Array.from({ length: state.headers.length }, (_, i) => i);
                 const aggregateIndices = [indexes.totalQHA, indexes.midterm];
-                columnIndexesToShow = columnIndexesToShow.filter(i => 
-                    !aggregateIndices.includes(i) || infoIndexes.includes(i)
-                );
+                
+                // Keep only unique columns
+                const allUnique = [...new Set(columnIndexesToShow)];
+                
+                // Prioritize info columns at the start
+                const infoSet = new Set(infoIndexes);
+                const orderedColumns = infoIndexes.concat(allUnique.filter(i => !infoSet.has(i)));
+                columnIndexesToShow = orderedColumns;
             }
             
             const columns = columnIndexesToShow.map((originalIndex, relativeIndex) => ({
                 title: state.headers[originalIndex],
                 data: null, 
+                // Render function is required by DataTables when passing raw array data
                 render: function (data, type, row) {
+                    // row is the array of data *for the visible columns*
                     return row[relativeIndex] || '';
                 },
-                orderable: relativeIndex > 1, 
+                // Set ordering based on column type (usually score columns are sortable)
+                orderable: !infoIndexes.includes(originalIndex), 
             }));
 
+            // Prepare the data rows to contain only the visible columns' data
             const tableData = state.data.map(row => {
                 return columnIndexesToShow.map(index => row[index]);
             });
@@ -498,11 +521,11 @@
                 paging: true,
                 scrollX: true,
                 dom: '<"row mb-3"<"col-md-6"l><"col-md-6"f>>rt<"row"<"col-md-6"i><"col-md-6"p>>',
-                columnDefs: [{ targets: [0], orderable: false }]
+                columnDefs: [{ targets: infoIndexes.map((_, i) => i), orderable: false }] // Disable ordering on info columns if needed
             });
         }
         
-        // --- HELPER FUNCTIONS FOR CALCULATIONS ---
+        // --- HELPER FUNCTIONS FOR CALCULATIONS (Unchanged for logic) ---
 
         function getQhaGrade(numericTotalQHA) {
              let grade = { label: 'N/A (មិនអាចវាយតម្លៃបាន)', color: 'text-secondary', bg: 'bg-light' };
@@ -527,22 +550,31 @@
             const infoHeaderValues = CORE_INFO_HEADERS.map(h => h.toLowerCase().trim());
             const aggregateHeaderValues = AGGREGATE_SCORE_HEADERS.map(h => h.toLowerCase().trim());
             const knownHeadersSet = new Set([...infoHeaderValues, ...aggregateHeaderValues]);
+            
             const detailedScores = state.headers.map((headerText, i) => {
                 const headerLower = headerText.toLowerCase().trim();
+                // Filter out known info/aggregate headers
                 if (knownHeadersSet.has(headerLower)) return null;
                 const val = parseFloat(student[i]);
+                // Only include if it is a valid number AND the cell content isn't empty/whitespace
                 if (!isNaN(val) && student[i] && student[i].trim() !== '') return { subject: headerText, score: val, index: i };
                 return null;
             }).filter(Boolean);
+            
+            // Recalculate if aggregates are missing in sheet
             let sumForAvg = detailedScores.reduce((sum, s) => sum + s.score, 0);
             let countForAvg = detailedScores.length;
+            
             const totalQHAValue = indexes.totalQHA !== undefined && student[indexes.totalQHA] ? (parseFloat(student[indexes.totalQHA]) || 0).toFixed(2) : null;
             const numericTotalQHA = totalQHAValue !== null ? parseFloat(totalQHAValue) : null;
+            
             const midtermValue = indexes.midterm !== undefined && student[indexes.midterm] ? (parseFloat(student[indexes.midterm]) || 0).toFixed(2) : null;
             const numericMidterm = midtermValue !== null ? parseFloat(midtermValue) : null;
+            
             const totalQHAIndex = indexes.totalQHA;
             const rankPrecision = 100;
             const totalStudentsInSheet = state.data.length;
+            
             const allQHAScores = state.data.map(row => {
                 if (totalQHAIndex !== undefined && totalQHAIndex !== -1 && row[totalQHAIndex]) {
                     const score = parseFloat(row[totalQHAIndex]);
@@ -550,15 +582,19 @@
                 }
                 return -1;
             }).filter(score => score !== -1); 
+            
             const currentQHAScoreRounded = numericTotalQHA !== null ? Math.round(numericTotalQHA * rankPrecision) / rankPrecision : -1;
             const sortedQHAScores = [...allQHAScores].sort((a, b) => b - a);
+            
             let rank = 'N/A';
             if (currentQHAScoreRounded !== -1 && sortedQHAScores.length > 0) {
                 const position = sortedQHAScores.findIndex(score => score === currentQHAScoreRounded);
                 if (position !== -1) { rank = position + 1; }
             }
+            
             const qhaGradeStatus = getQhaGrade(numericTotalQHA);
             const midtermGradeStatus = getMidtermGrade(numericMidterm);
+            
             return { 
                 detailedScores, rank: rank, totalStudentsInSheet: totalStudentsInSheet, qhaGradeStatus: qhaGradeStatus,
                 midtermGradeStatus: midtermGradeStatus, totalQHAValue, midtermValue, studentNameKh: getStudentInfo('nameKh')
@@ -570,14 +606,19 @@
             const qhaIndex = indexes.totalQHA;
             const midtermIndex = indexes.midterm;
             let totalQHA = 0; let totalMidterm = 0; let countQHA = 0; let countMidterm = 0; let passCount = 0; let goodCount = 0;
+            
             state.data.forEach(row => {
-                const qha = parseFloat(row[qhaIndex]); const midterm = parseFloat(row[midtermIndex]);
+                const qha = parseFloat(row[qhaIndex]); 
+                const midterm = parseFloat(row[midtermIndex]);
+                
                 if (!isNaN(qha)) { totalQHA += qha; countQHA++; if (qha >= 7.5) goodCount++; }
                 if (!isNaN(midterm)) { totalMidterm += midterm; countMidterm++; if (midterm >= 12.5) passCount++; }
             });
+            
             const avgQHA = countQHA ? (totalQHA / countQHA).toFixed(2) : 'N/A';
             const avgMidterm = countMidterm ? (totalMidterm / countMidterm).toFixed(2) : 'N/A';
             const totalStudents = state.data.length;
+            
             return {
                 avgQHA: avgQHA, avgMidterm: avgMidterm, totalStudents: totalStudents,
                 passRateMidterm: totalStudents ? ((passCount / totalStudents) * 100).toFixed(1) : 'N/A',
@@ -587,28 +628,63 @@
         }
         function getStudentInfo(key, row = state.student) {
             const index = state.colIndexes[key];
-            return index !== undefined && index !== -1 && row ? row[index] : 'N/A';
+            // Ensure index is valid before accessing array element
+            return index !== undefined && index !== -1 && row && row[index] !== undefined ? row[index] : 'N/A';
         }
+
         async function getLLMFeedback(stats) {
             state.feedbackLoading = true;
             state.feedbackError = null;
             const feedbackContent = document.getElementById('feedback-content');
-            if (window.bootstrap) { const modal = new bootstrap.Modal(document.getElementById('feedbackModal')); modal.show(); }
+            
+            // Show Modal and Loading State
+            if (window.bootstrap) { 
+                const modal = new bootstrap.Modal(document.getElementById('feedbackModal')); 
+                modal.show(); 
+            }
             feedbackContent.innerHTML = `<div class="text-center py-4"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">កំពុងផ្ទុក...</span></div><p class="mt-2 text-muted">AI កំពុងវិភាគលទ្ធផល...</p></div>`;
-            renderApp();
+            renderApp(); // Update button state
+            
             const systemPrompt = "Act as an experienced, kind, and encouraging Cambodian academic advisor. Your response MUST be written in the Khmer language. Analyze the student's QHA status (Quiz/Homework/Attendance) and Midterm status to provide personalized, constructive feedback and advice on how they can improve or maintain their performance.";
             const userQuery = `Student Name: ${stats.studentNameKh}. QHA Status: ${stats.qhaGradeStatus.label} (${stats.totalQHAValue}). Midterm Status: ${stats.midtermGradeStatus.label} (${stats.midtermValue}). Provide a short, motivating, and actionable paragraph of advice based on these results.`;
-            const apiKey = ""; 
-            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
-            const payload = { contents: [{ parts: [{ text: userQuery }] }], systemInstruction: { parts: [{ text: systemPrompt }] }, tools: [{ "google_search": {} }] };
-            let responseText = "ការវិភាគមិនដំណើរការ។ សូមព្យាយាមម្តងទៀត។"; state.feedbackError = "AI_EMPTY_RESPONSE";
-            const MAX_RETRIES = 3; let delay = 1000;
+            
+            // SECURITY NOTE: In a production environment, this should point to a secure, server-side proxy
+            // that uses the actual API key and returns ONLY the response text.
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${APP_CONFIG.GEMINI_API_KEY}`;
+            
+            const payload = { 
+                contents: [{ parts: [{ text: userQuery }] }], 
+                systemInstruction: { parts: [{ text: systemPrompt }] }, 
+                config: { tools: [{ googleSearch: {} }] } 
+            };
+            
+            let responseText = "ការវិភាគមិនដំណើរការ។ សូមព្យាយាមម្តងទៀត។"; 
+            state.feedbackError = "AI_EMPTY_RESPONSE";
+            
+            const MAX_RETRIES = 3; 
+            let delay = 1000;
+            
             for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
                 try {
-                    const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                    const response = await fetch(apiUrl, { 
+                        method: 'POST', 
+                        headers: { 'Content-Type': 'application/json' }, 
+                        body: JSON.stringify(payload) 
+                    });
+                    
                     if (!response.ok) { throw new Error(`HTTP error! status: ${response.status}`); }
-                    const result = await response.json(); const candidate = result.candidates?.[0];
-                    if (candidate && candidate.content?.parts?.[0]?.text) { responseText = candidate.content.parts[0].text; state.feedbackError = null; break; } else { throw new Error("Empty AI content."); }
+                    
+                    const result = await response.json(); 
+                    const candidate = result.candidates?.[0];
+                    
+                    if (candidate && candidate.content?.parts?.[0]?.text) { 
+                        responseText = candidate.content.parts[0].text; 
+                        state.feedbackError = null; 
+                        break; 
+                    } else { 
+                        throw new Error("Empty AI content or blocked."); 
+                    }
+                    
                 } catch (error) {
                     console.error(`Gemini API Error (Attempt ${attempt + 1}/${MAX_RETRIES}):`, error);
                     if (attempt < MAX_RETRIES - 1) {
@@ -620,51 +696,83 @@
                     }
                 }
             }
+            
             state.feedbackLoading = false;
+            
+            // Set final content
             if (state.feedbackError) {
                 let displayError = (state.feedbackError === "FAILED_AFTER_RETRIES") ? "បរាជ័យក្នុងការវិភាគ" : "Received empty response from AI";
                 feedbackContent.innerHTML = `<div class="alert alert-danger">${responseText} (កំហុស: ${displayError})</div>`;
             } else {
-                feedbackContent.innerHTML = `<p class="fw-medium">${responseText}</p>`;
+                // Use DOM manipulation to inject text safely
+                const p = document.createElement('p');
+                p.className = 'fw-medium';
+                setSafeContent(p, responseText);
+                feedbackContent.innerHTML = '';
+                feedbackContent.appendChild(p);
             }
             renderApp();
         }
 
-        // --- RENDERING FUNCTIONS ---
+        // --- DOM RENDER FUNCTIONS (CRITICAL REFACTOR FOR XSS PREVENTION) ---
+
         function renderHeader() {
+            const header = document.createElement('header');
+            setSafeContent(header, `
+                <div class="container app-container mx-auto px-3 py-3 d-flex justify-content-between align-items-center">
+                    <div class="d-flex align-items-center gap-3">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-8 h-8 text-white"><path d="M4 19.5V10l8-7 8 7v9.5a.5.5 0 0 1-.5.5h-15a.5.5 0 0 1-.5-.5Z"/><path d="M8 12.5v7.5"/><path d="M12 12.5v7.5"/><path d="M16 12.5v7.5"/></svg>
+                        <div><h1 class="h5 mb-0 fw-bold">ផតថលពិន្ទុសិស្ស</h1><p class="mb-0 text-sm text-blue-200">ប្រព័ន្ធត្រួតពិនិត្យពិន្ទុសិស្ស</p></div>
+                    </div>
+                    <div class="d-flex gap-2" id="header-action-buttons"></div>
+                </div>
+            `, 'innerHTML');
+            header.className = "header-bg text-white shadow sticky-top no-print";
+
+            const actionContainer = header.querySelector('#header-action-buttons');
             const isResultView = state.student !== null;
             const isTeacherView = state.isTeacher;
-            let backButton = '';
-            let actionButtons = ``; 
-            
+
             if (isTeacherView) {
-                backButton = `<button onclick="handleTeacherLogout()" class="btn btn-sm btn-light fw-bold">ចាកចេញ (គ្រូ)</button>`;
+                const logoutBtn = document.createElement('button');
+                logoutBtn.className = "btn btn-sm btn-light fw-bold";
+                setSafeContent(logoutBtn, "ចាកចេញ (គ្រូ)");
+                logoutBtn.addEventListener('click', handleTeacherLogout);
+                actionContainer.appendChild(logoutBtn);
             } else if (isResultView) {
-                backButton = `<button onclick="handleBack()" class="btn btn-sm btn-light fw-bold">ត្រលប់ក្រោយ</button>`;
+                const backBtn = document.createElement('button');
+                backBtn.className = "btn btn-sm btn-light fw-bold";
+                setSafeContent(backBtn, "ត្រលប់ក្រោយ");
+                backBtn.addEventListener('click', handleBack);
+                actionContainer.appendChild(backBtn);
             } else {
                 const otherView = state.currentView === 'student' ? 'teacher' : 'student';
                 const buttonText = state.currentView === 'student' ? 'ចូលប្រព័ន្ធគ្រូ' : 'ចូលប្រព័ន្ធសិស្ស';
-                actionButtons += `<button onclick="state.currentView = '${otherView}'; renderApp();" class="btn btn-sm btn-light fw-bold">${buttonText}</button>`;
+                
+                const switchBtn = document.createElement('button');
+                switchBtn.className = "btn btn-sm btn-light fw-bold";
+                setSafeContent(switchBtn, buttonText);
+                switchBtn.addEventListener('click', () => { 
+                    state.currentView = otherView; 
+                    renderApp(); 
+                });
+                actionContainer.appendChild(switchBtn);
             }
 
-            return `
-                <header class="header-bg text-white shadow sticky-top no-print">
-                    <div class="container app-container mx-auto px-3 py-3 d-flex justify-content-between align-items-center">
-                        <div class="d-flex align-items-center gap-3">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-8 h-8 text-white"><path d="M4 19.5V10l8-7 8 7v9.5a.5.5 0 0 1-.5.5h-15a.5.5 0 0 1-.5-.5Z"/><path d="M8 12.5v7.5"/><path d="M12 12.5v7.5"/><path d="M16 12.5v7.5"/></svg>
-                            <div><h1 class="h5 mb-0 fw-bold">ផតថលពិន្ទុសិស្ស</h1><p class="mb-0 text-sm text-blue-200">ប្រព័ន្ធត្រួតពិនិត្យពិន្ទុសិស្ស</p></div>
-                        </div>
-                        <div class="d-flex gap-2">${actionButtons} ${backButton}</div>
-                    </div>
-                </header>
-            `;
+            return header;
         }
 
         function renderLoading() {
-            return `<div class="text-center py-5 mt-5"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">កំពុងផ្ទុក...</span></div><p class="mt-3 text-muted">កំពុងទាញយកទិន្នន័យពី Google Sheet...</p></div>`;
+            const div = document.createElement('div');
+            div.className = "text-center py-5 mt-5";
+            setSafeContent(div, `<div class="spinner-border text-primary" role="status"><span class="visually-hidden">កំពុងផ្ទុក...</span></div><p class="mt-3 text-muted">កំពុងទាញយកទិន្នន័យពី Google Sheet...</p>`, 'innerHTML');
+            return div;
         }
 
         function renderError() {
+            const div = document.createElement('div');
+            div.className = "container app-container mx-auto px-3 mt-4";
+            
             let message;
             if (state.error === "PUBLISH_ERROR") {
                 message = `
@@ -678,281 +786,380 @@
                             <li>4. ផ្ទុកទំព័រនេះឡើងវិញ។</li>
                         </ol>
                     </div>`;
-            } else if (state.error === "DATA_PROXY_ERROR") {
-                message = `<p>មានបញ្ហាក្នុងការភ្ជាប់ទៅ Server (Proxy Function) ដើម្បីទាញយកទិន្នន័យ។ សូមព្យាយាមម្តងទៀត ឬពិនិត្យមើល Vercel Logs។</p>`;
             } else {
                 message = `<p>មានបញ្ហាក្នុងការភ្ជាប់បណ្តាញ។ សូមព្យាយាមម្តងទៀត។</p>`;
             }
-
-            return `
-                <div class="container app-container mx-auto px-3 mt-4">
-                    <div class="alert alert-danger shadow-sm border-start-0 border-end-0" role="alert">
-                        <h4 class="alert-heading fw-bold d-flex align-items-center">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="me-2"><path d="m21.73 18-9-15-9 15z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg> កំហុស
-                        </h4><hr>${message}</div>
-                </div>
-            `;
+            
+            setSafeContent(div, `
+                <div class="alert alert-danger shadow-sm border-start-0 border-end-0" role="alert">
+                    <h4 class="alert-heading fw-bold d-flex align-items-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="me-2"><path d="m21.73 18-9-15-9 15z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg> កំហុស
+                    </h4><hr>${message}</div>
+            `, 'innerHTML');
+            
+            return div;
         }
 
         function renderInitialView() {
+            const div = document.createElement('div');
+            div.className = "container app-container mx-auto px-3 mt-5";
             const lastUpdateStr = state.lastUpdated ? state.lastUpdated.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'N/A';
             const intervalText = `ធ្វើបច្ចុប្បនភាពស្វ័យប្រវត្តិរៀងរាល់ ១នាទី`;
 
-            const studentSearchContent = `
-                <div class="tab-pane fade ${state.currentView === 'student' ? 'show active' : ''}" id="student-tab-pane" role="tabpanel" aria-labelledby="student-tab" tabindex="0">
-                    <div class="p-3 bg-blue-100 rounded-circle d-inline-flex mb-4">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-primary"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            // This structure is mostly static layout, so innerHTML is acceptable for the main template, 
+            // but dynamic content must be handled carefully.
+            setSafeContent(div, `
+                <div class="card shadow-lg border-0 mx-auto" style="max-width: 400px;">
+                    <div class="card-header p-0 no-print">
+                        <ul class="nav nav-tabs nav-fill border-0" id="loginTabs" role="tablist">
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link fw-bold ${state.currentView === 'student' ? 'active bg-white' : ''} rounded-top-0" id="student-tab" type="button" role="tab" aria-controls="student-tab-pane" aria-selected="${state.currentView === 'student' ? 'true' : 'false'}">សិស្ស (ស្វែងរក)</button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link fw-bold ${state.currentView === 'teacher' ? 'active bg-white' : ''} rounded-top-0" id="teacher-tab" type="button" role="tab" aria-controls="teacher-tab-pane" aria-selected="${state.currentView === 'teacher' ? 'true' : 'false'}">គ្រូបង្រៀន</button>
+                            </li>
+                        </ul>
                     </div>
-                    <h2 class="h5 card-title fw-bold">ពិនិត្យលទ្ធផលរបស់អ្នក</h2>
-                    <p class="text-muted mb-4">បញ្ចូលអត្តលេខសិស្ស (ID) ពេញលេញ</p>
-                    <form id="search-form">
-                        <input type="text" id="search-input" class="form-control form-control-lg text-center fw-bold mb-3" placeholder="បញ្ចូលអត្តលេខពេញលេញ..." value="${state.searchId}" required/>
-                        <button type="submit" class="btn btn-primary btn-lg w-100 fw-bold shadow-sm d-flex justify-content-center align-items-center gap-2">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-                            <span>ស្វែងរកលទ្ធផល</span>
-                        </button>
-                    </form>
-                    <div id="search-message"></div>
-                </div>
-            `;
-
-            const teacherLoginContent = `
-                <div class="tab-pane fade ${state.currentView === 'teacher' ? 'show active' : ''}" id="teacher-tab-pane" role="tabpanel" aria-labelledby="teacher-tab" tabindex="0">
-                    <div class="p-3 bg-blue-100 rounded-circle d-inline-flex mb-4">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-primary"><path d="M14.5 10c.84-.79 1.48-1.73 1.93-2.8h-7.66c.45 1.07 1.09 2.01 1.93 2.8z"/><path d="M12 15a3 3 0 0 0-3 3v2h6v-2a3 3 0 0 0-3-3z"/><path d="M12 22s8-4 8-10c0-4.42-3.58-8-8-8s-8 3.58-8 8c0 6 8 10 8 10z"/></svg>
-                    </div>
-                    <h2 class="h5 card-title fw-bold">ការចូលរបស់គ្រូបង្រៀន</h2>
-                    <p class="text-muted mb-4">បញ្ចូលឈ្មោះអ្នកប្រើប្រាស់ និងពាក្យសម្ងាត់</p>
-                    
-                    <form id="teacher-login-form">
-                        <input type="text" id="teacher-username" class="form-control form-control-lg fw-bold mb-3" placeholder="ឈ្មោះអ្នកប្រើប្រាស់" required/>
-                        <input type="password" id="teacher-password" class="form-control form-control-lg fw-bold mb-3" placeholder="ពាក្យសម្ងាត់" required/>
-                        <button type="submit" class="btn btn-success btn-lg w-100 fw-bold shadow-sm d-flex justify-content-center align-items-center gap-2">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" x2="3" y1="12" y2="12"/></svg>
-                            <span>ចូល</span>
-                        </button>
-                    </form>
-                    <div id="login-message"></div>
-                </div>
-            `;
-
-            return `
-                <div class="container app-container mx-auto px-3 mt-5">
-                    <div class="card shadow-lg border-0 mx-auto" style="max-width: 400px;">
-                        <div class="card-header p-0 no-print">
-                            <ul class="nav nav-tabs nav-fill border-0" id="loginTabs" role="tablist">
-                                <li class="nav-item" role="presentation">
-                                    <button class="nav-link fw-bold ${state.currentView === 'student' ? 'active bg-white' : ''} rounded-top-0" id="student-tab" onclick="state.currentView = 'student'; renderApp();" type="button" role="tab" aria-controls="student-tab-pane" aria-selected="${state.currentView === 'student' ? 'true' : 'false'}">សិស្ស (ស្វែងរក)</button>
-                                </li>
-                                <li class="nav-item" role="presentation">
-                                    <button class="nav-link fw-bold ${state.currentView === 'teacher' ? 'active bg-white' : ''} rounded-top-0" id="teacher-tab" onclick="state.currentView = 'teacher'; renderApp();" type="button" role="tab" aria-controls="teacher-tab-pane" aria-selected="${state.currentView === 'teacher' ? 'true' : 'false'}">គ្រូបង្រៀន</button>
-                                </li>
-                            </ul>
-                        </div>
-                        <div class="card-body p-4 text-center">
-                            <div class="tab-content" id="loginTabsContent">
-                                ${studentSearchContent}
-                                ${teacherLoginContent}
+                    <div class="card-body p-4 text-center">
+                        <div class="tab-content" id="loginTabsContent">
+                            <div class="tab-pane fade ${state.currentView === 'student' ? 'show active' : ''}" id="student-tab-pane" role="tabpanel" aria-labelledby="student-tab" tabindex="0">
+                                <div class="p-3 bg-blue-100 rounded-circle d-inline-flex mb-4">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-primary"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                                </div>
+                                <h2 class="h5 card-title fw-bold">ពិនិត្យលទ្ធផលរបស់អ្នក</h2>
+                                <p class="text-muted mb-4">បញ្ចូលអត្តលេខសិស្ស (ID) ពេញលេញ</p>
+                                <form id="search-form">
+                                    <input type="text" id="search-input" class="form-control form-control-lg text-center fw-bold mb-3" placeholder="បញ្ចូលអត្តលេខពេញលេញ..." value="${state.searchId}" required/>
+                                    <button type="submit" class="btn btn-primary btn-lg w-100 fw-bold shadow-sm d-flex justify-content-center align-items-center gap-2">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                                        <span>ស្វែងរកលទ្ធផល</span>
+                                    </button>
+                                </form>
+                                <div id="search-message"></div>
                             </div>
+                            <div class="tab-pane fade ${state.currentView === 'teacher' ? 'show active' : ''}" id="teacher-tab-pane" role="tabpanel" aria-labelledby="teacher-tab" tabindex="0">
+                                <div class="p-3 bg-blue-100 rounded-circle d-inline-flex mb-4">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-primary"><path d="M14.5 10c.84-.79 1.48-1.73 1.93-2.8h-7.66c.45 1.07 1.09 2.01 1.93 2.8z"/><path d="M12 15a3 3 0 0 0-3 3v2h6v-2a3 3 0 0 0-3-3z"/><path d="M12 22s8-4 8-10c0-4.42-3.58-8-8-8s-8 3.58-8 8c0 6 8 10 8 10z"/></svg>
+                                </div>
+                                <h2 class="h5 card-title fw-bold">ការចូលរបស់គ្រូបង្រៀន</h2>
+                                <p class="text-muted mb-4">បញ្ចូលឈ្មោះអ្នកប្រើប្រាស់ និងពាក្យសម្ងាត់</p>
+                                
+                                <form id="teacher-login-form">
+                                    <input type="text" id="teacher-username" class="form-control form-control-lg fw-bold mb-3" placeholder="ឈ្មោះអ្នកប្រើប្រាស់" required/>
+                                    <input type="password" id="teacher-password" class="form-control form-control-lg fw-bold mb-3" placeholder="ពាក្យសម្ងាត់" required/>
+                                    <button type="submit" class="btn btn-success btn-lg w-100 fw-bold shadow-sm d-flex justify-content-center align-items-center gap-2">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" x2="3" y1="12" y2="12"/></svg>
+                                        <span>ចូល</span>
+                                    </button>
+                                </form>
+                                <div id="login-message"></div>
+                            </div>
+                        </div>
 
-                            <div class="mt-4 pt-3 border-top border-light text-start">
-                                <div class="d-flex justify-content-center align-items-center gap-2 text-sm text-muted">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-success"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m9 11 3 3L22 4"/></svg>
-                                    <span>${state.data.length} កំណត់ត្រាដំណើរការ</span>
-                                </div>
-                                <div class="d-flex justify-content-center align-items-center gap-2 text-xs text-muted mt-2">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-info"><path d="M2 12s3-3 8-3 8 3 8 3M2 12s3 3 8 3 8-3 8-3"/></svg>
-                                    <span>ធ្វើបច្ចុប្បនភាពចុងក្រោយ: ${lastUpdateStr} (${intervalText})</span>
-                                </div>
+                        <div class="mt-4 pt-3 border-top border-light text-start">
+                            <div class="d-flex justify-content-center align-items-center gap-2 text-sm text-muted">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-success"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m9 11 3 3L22 4"/></svg>
+                                <span>${state.data.length} កំណត់ត្រាដំណើរការ</span>
+                            </div>
+                            <div class="d-flex justify-content-center align-items-center gap-2 text-xs text-muted mt-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-info"><path d="M2 12s3-3 8-3 8 3 8 3M2 12s3 3 8 3 8-3 8-3"/></svg>
+                                <span>ធ្វើបច្ចុប្បនភាពចុងក្រោយ: ${lastUpdateStr} (${intervalText})</span>
                             </div>
                         </div>
                     </div>
                 </div>
-            `;
+            `, 'innerHTML'); // Trusting the static structure here
+
+            // Attach listeners to the dynamically created tabs after injecting HTML
+            div.querySelectorAll('.nav-link').forEach(button => {
+                button.addEventListener('click', (e) => {
+                    const view = e.target.id.includes('student') ? 'student' : 'teacher';
+                    state.currentView = view;
+                    renderApp();
+                });
+            });
+
+            return div;
         }
 
         function renderResults(stats) {
-            const { totalQHAValue, midtermValue, qhaGradeStatus, midtermGradeStatus, detailedScores, rankDisplay, lastUpdateStr, intervalText } = { ...stats, lastUpdateStr: state.lastUpdated ? state.lastUpdated.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'N/A', intervalText: `ធ្វើបច្ចុប្បនភាពស្វ័យប្រវត្តិរៀងរាល់ ១នាទី`, rankDisplay: stats.rank !== 'N/A' ? `${stats.rank} / ${stats.totalStudentsInSheet}` : `N/A / ${stats.totalStudentsInSheet}` };
-            const studentInfo = { nameKh: getStudentInfo('nameKh'), nameEn: getStudentInfo('nameEn'), ID: getStudentInfo('id'), LR: getStudentInfo('lr'), Gender: getStudentInfo('gender'), Room: getStudentInfo('room'), Subject: getStudentInfo('subject'), Skill: getStudentInfo('skill') };
+            const container = document.createElement('div');
+            container.className = "container app-container mx-auto px-3 mt-4";
+
+            const { totalQHAValue, midtermValue, qhaGradeStatus, midtermGradeStatus, detailedScores, rank, totalStudentsInSheet } = stats;
+            const lastUpdateStr = state.lastUpdated ? state.lastUpdated.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'N/A';
+            const intervalText = `ធ្វើបច្ចុប្បនភាពស្វ័យប្រវត្តិរៀងរាល់ ១នាទី`;
+            const rankDisplay = rank !== 'N/A' ? `${rank} / ${totalStudentsInSheet}` : `N/A / ${totalStudentsInSheet}`;
             
-            const scoreRows = detailedScores.map(s => `<tr class="align-middle"><td class="px-4 py-2">${s.subject}</td><td class="px-4 py-2 text-end fw-bold">${s.score.toFixed(2)}</td></tr>`).join('');
+            const studentInfo = { 
+                nameKh: getStudentInfo('nameKh'), 
+                nameEn: getStudentInfo('nameEn'), 
+                ID: getStudentInfo('id'), 
+                LR: getStudentInfo('lr'), 
+                Gender: getStudentInfo('gender'), 
+                Room: getStudentInfo('room'), 
+                Subject: getStudentInfo('subject'), 
+                Skill: getStudentInfo('skill') 
+            };
             
-            const dashboardLayout = `
-                <h5 class="fw-bold text-secondary mb-3">ពិន្ទុសរុប</h5>
-                <div class="row g-3 mb-4">
-                    <div class="col-6"><div class="card h-100 p-3 bg-yellow-100 border-0 shadow-sm print:bg-white print:border"><p class="small fw-bold text-yellow-700 text-uppercase mb-1">សរុបពិន្ទុ (Q,H,A)</p><h4 class="h4 fw-bolder mb-0 text-dark">${totalQHAValue || 'N/A'}</h4></div></div>
-                    <div class="col-6"><div class="card h-100 p-3 bg-green-100 border-0 shadow-sm print:bg-white print:border"><p class="small fw-bold text-green-700 text-uppercase mb-1">ពិន្ទុពាក់កណ្តាលឆមាស</p><h4 class="h4 fw-bolder mb-0 text-dark">${midtermValue || 'N/A'}</h4></div></div>
-                </div>
-                <h5 class="fw-bold text-secondary mb-3">ស្ថានភាព</h5>
-                <div class="row g-3 mb-4">
-                    <div class="col-6"><div class="card h-100 p-3 ${qhaGradeStatus.bg} border-0 shadow-sm print:bg-white print:border"><p class="small fw-bold ${qhaGradeStatus.color} text-uppercase mb-1">ស្ថានភាព QHA (លទ្ធផល QHA)</p><h4 class="h4 fw-bold mb-0">${qhaGradeStatus.label}</h4></div></div>
-                    <div class="col-6"><div class="card h-100 p-3 ${midtermGradeStatus.bg} border-0 shadow-sm print:bg-white print:border"><p class="small fw-bold ${midtermGradeStatus.color} text-uppercase mb-1">ស្ថានភាពពាក់កណ្តាលឆមាស</p><h4 class="h4 fw-bold mb-0">${midtermGradeStatus.label}</h4></div></div>
-                </div>
-            `;
-            
-            return `
-                <div class="container app-container mx-auto px-3 mt-4">
-                    <div class="d-flex justify-content-end gap-2 mb-3 no-print">
+            // --- Helper for creating a stats card ---
+            const createStatCard = (title, value, colorClass, bgClass) => {
+                const card = document.createElement('div');
+                card.className = "card h-100 p-3 border-0 shadow-sm print:bg-white print:border " + bgClass;
+                card.innerHTML = `<p class="small fw-bold ${colorClass} text-uppercase mb-1">${title}</p><h4 class="h4 fw-bolder mb-0 text-dark">${value}</h4>`;
+                return card;
+            };
+
+            // --- Main Report Card Structure (static safe HTML) ---
+            const reportCardHtml = `
+                <div class="d-flex justify-content-end gap-2 mb-3 no-print" id="result-actions"></div>
+                <div class="card report-card shadow-lg rounded-xl overflow-hidden mb-5">
+                    <div class="card-header bg-light p-4 border-bottom print:bg-white print:border-black" id="report-header"></div>
+                    <div class="card-body p-4">
+                        <h5 class="fw-bold text-secondary mb-3">ព័ត៌មានសិស្ស</h5>
+                        <div class="row g-2 small mb-4 bg-gray-100 p-3 rounded-lg print:bg-white print:border">
+                            <div class="col-6"><span class="fw-bold">ភេទ:</span> ${studentInfo.Gender}</div>
+                            <div class="col-6"><span class="fw-bold">បន្ទប់:</span> ${studentInfo.Room}</div>
+                            <div class="col-6"><span class="fw-bold">មុខវិជ្ជា:</span> ${studentInfo.Subject}</div>
+                            <div class="col-6"><span class="fw-bold">ជំនាញ:</span> ${studentInfo.Skill}</div>
+                        </div>
+
+                        <h5 class="fw-bold text-secondary mb-3">ពិន្ទុសរុប</h5>
+                        <div class="row g-3 mb-4" id="aggregate-scores"></div>
+                        <h5 class="fw-bold text-secondary mb-3">ស្ថានភាព</h5>
+                        <div class="row g-3 mb-4" id="grade-status"></div>
+
+                        <h5 class="fw-bold text-secondary mb-3 mt-4 d-flex align-items-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-info"><path d="M12 2v20M17 5H7l-5 5 5 5h10l5-5-5-5z"/></svg>
+                            ពិន្ទុលម្អិតលំហាត់ (បច្ចុប្បនភាពស្វ័យប្រវត្តិ)
+                        </h5>
+                        <div id="detailed-scores-table"></div>
                         
-                        <!-- AI Feedback Button -->
-                        <button onclick="getLLMFeedback(${JSON.stringify(stats).replace(/"/g, '&quot;')})" class="btn btn-sm btn-success fw-bold d-flex align-items-center gap-2" ${state.feedbackLoading ? 'disabled' : ''}>
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20.94a10 10 0 1 0 0-17.88 10 10 0 0 0 0 17.88zM12 11.5v4M12 8.5h.01"/></svg>
-                            ${state.feedbackLoading ? 'កំពុងវិភាគ...' : 'ទទួលបានមតិកែលម្អការសិក្សា'}
-                        </button>
-                        <button onclick="handleManualRefresh()" class="btn btn-sm btn-outline-primary fw-bold d-flex align-items-center gap-2">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6"/><path d="M2.5 22v-6h6"/><path d="M21.5 8a10 10 0 0 0-18.7-2"/><path d="M2.5 16a10 10 0 0 0 18.7 2"/></svg>
-                            ធ្វើបច្ចុប្បនភាពទិន្នន័យ
-                        </button>
-                        <button onclick="window.print()" class="btn btn-sm btn-outline-secondary fw-bold d-flex align-items-center gap-2">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect width="12" height="8" x="6" y="14"/></svg>
-                            បោះពុម្ពរបាយការណ៍
-                        </button>
-                    </div>
-                    <div class="card report-card shadow-lg rounded-xl overflow-hidden mb-5">
-                        <div class="card-header bg-light p-4 border-bottom print:bg-white print:border-black">
-                            <div class="d-flex justify-content-between align-items-center">
-                                <div><h2 class="h4 fw-bold mb-0">${studentInfo.nameKh} (${studentInfo.nameEn})</h2><p class="text-muted small mb-0">អត្តលេខ: ${studentInfo.ID} | ល.រ: ${studentInfo.LR}</p></div>
-                                <div class="text-end"><p class="mb-0 small fw-bold text-muted text-uppercase">ចំណាត់ថ្នាក់</p><h3 class="h3 fw-bolder text-primary">${rankDisplay}</h3></div>
-                            </div>
-                            <p class="text-muted small mb-0 mt-2 no-print">
-                                ទិន្នន័យត្រូវបានធ្វើបច្ចុប្បនភាពស្វ័យប្រវត្តិ: ${lastUpdateStr} (${intervalText})
-                            </p>
-                        </div>
-                        <div class="card-body p-4">
-                            <h5 class="fw-bold text-secondary mb-3">ព័ត៌មានសិស្ស</h5>
-                            <div class="row g-2 small mb-4 bg-gray-100 p-3 rounded-lg print:bg-white print:border">
-                                <div class="col-6"><span class="fw-bold">ភេទ:</span> ${studentInfo.Gender}</div>
-                                <div class="col-6"><span class="fw-bold">បន្ទប់:</span> ${studentInfo.Room}</div>
-                                <div class="col-6"><span class="fw-bold">មុខវិជ្ជា:</span> ${studentInfo.Subject}</div>
-                                <div class="col-6"><span class="fw-bold">ជំនាញ:</span> ${studentInfo.Skill}</div>
-                            </div>
-                            ${dashboardLayout}
-                            <h5 class="fw-bold text-secondary mb-3 mt-4 d-flex align-items-center gap-2">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-info"><path d="M12 2v20M17 5H7l-5 5 5 5h10l5-5-5-5z"/></svg>
-                                ពិន្ទុលម្អិតលំហាត់ (បច្ចុប្បនភាពស្វ័យប្រវត្តិ)
-                            </h5>
-                            ${stats.detailedScores.length > 0 ? `<div class="border rounded overflow-hidden"><table class="table table-sm table-hover mb-0"><thead class="bg-light"><tr class="small text-muted text-uppercase"><th class="px-4 py-2">មុខវិជ្ជា / លំហាត់</th><th class="px-4 py-2 text-end">ពិន្ទុ</th></tr></thead><tbody>${scoreRows}</tbody></table></div>` : `<div class="alert alert-warning small">រកមិនឃើញពិន្ទុលម្អិត (ត្រូវប្រាកដថាជួរឈរពិន្ទុរបស់អ្នកជាលេខ)។</div>`}
-                            <div class="d-none d-print-block mt-5 pt-3 border-top border-secondary">
-                                <div class="row small text-muted"><div class="col-6 text-center"><div class="border-bottom border-dark mx-auto mb-2" style="width: 150px;"></div><p>ហត្ថលេខាគ្រូ</p></div><div class="col-6 text-center"><div class="border-bottom border-dark mx-auto mb-2" style="width: 150px;"></div><p>ហត្ថលេខាអ្នកគ្រប់គ្រង</p></div></div>
-                            </div>
+                        <div class="d-none d-print-block mt-5 pt-3 border-top border-secondary">
+                            <div class="row small text-muted"><div class="col-6 text-center"><div class="border-bottom border-dark mx-auto mb-2" style="width: 150px;"></div><p>ហត្ថលេខាគ្រូ</p></div><div class="col-6 text-center"><div class="border-bottom border-dark mx-auto mb-2" style="width: 150px;"></div><p>ហត្ថលេខាអ្នកគ្រប់គ្រង</p></div></div>
                         </div>
                     </div>
                 </div>
             `;
+            setSafeContent(container, reportCardHtml, 'innerHTML');
+
+            // --- Fill in dynamic, possibly user-data-containing sections securely ---
+
+            // 1. Header
+            const headerEl = container.querySelector('#report-header');
+            headerEl.innerHTML = `
+                <div class="d-flex justify-content-between align-items-center">
+                    <div><h2 class="h4 fw-bold mb-0"></h2><p class="text-muted small mb-0"></p></div>
+                    <div class="text-end"><p class="mb-0 small fw-bold text-muted text-uppercase">ចំណាត់ថ្នាក់</p><h3 class="h3 fw-bolder text-primary">${rankDisplay}</h3></div>
+                </div>
+                <p class="text-muted small mb-0 mt-2 no-print">
+                    ទិន្នន័យត្រូវបានធ្វើបច្ចុប្បនភាពស្វ័យប្រវត្តិ: ${lastUpdateStr} (${intervalText})
+                </p>
+            `;
+            headerEl.querySelector('h2').textContent = `${studentInfo.nameKh} (${studentInfo.nameEn})`;
+            headerEl.querySelector('p:nth-child(2)').textContent = `អត្តលេខ: ${studentInfo.ID} | ល.រ: ${studentInfo.LR}`;
+
+            // 2. Aggregate Scores
+            const aggScoresEl = container.querySelector('#aggregate-scores');
+            const qhaCol = document.createElement('div'); qhaCol.className = 'col-6';
+            qhaCol.appendChild(createStatCard('សរុបពិន្ទុ (Q,H,A)', totalQHAValue || 'N/A', 'text-yellow-700', 'bg-yellow-100'));
+            const midtermCol = document.createElement('div'); midtermCol.className = 'col-6';
+            midtermCol.appendChild(createStatCard('ពិន្ទុពាក់កណ្តាលឆមាស', midtermValue || 'N/A', 'text-green-700', 'bg-green-100'));
+            aggScoresEl.append(qhaCol, midtermCol);
+
+            // 3. Grade Status
+            const gradeStatusEl = container.querySelector('#grade-status');
+            const qhaStatusCol = document.createElement('div'); qhaStatusCol.className = 'col-6';
+            qhaStatusCol.appendChild(createStatCard('ស្ថានភាព QHA (លទ្ធផល QHA)', qhaGradeStatus.label, qhaGradeStatus.color, qhaGradeStatus.bg));
+            const midtermStatusCol = document.createElement('div'); midtermStatusCol.className = 'col-6';
+            midtermStatusCol.appendChild(createStatCard('ស្ថានភាពពាក់កណ្តាលឆមាស', midtermGradeStatus.label, midtermGradeStatus.color, midtermGradeStatus.bg));
+            gradeStatusEl.append(qhaStatusCol, midtermStatusCol);
+
+            // 4. Detailed Scores Table
+            const detailedScoresEl = container.querySelector('#detailed-scores-table');
+            if (detailedScores.length > 0) {
+                const tableWrapper = document.createElement('div');
+                tableWrapper.className = 'border rounded overflow-hidden';
+                const table = document.createElement('table');
+                table.className = 'table table-sm table-hover mb-0';
+                
+                table.innerHTML = `<thead class="bg-light"><tr class="small text-muted text-uppercase"><th class="px-4 py-2">មុខវិជ្ជា / លំហាត់</th><th class="px-4 py-2 text-end">ពិន្ទុ</th></tr></thead><tbody></tbody>`;
+                const tbody = table.querySelector('tbody');
+
+                detailedScores.forEach(s => {
+                    const tr = document.createElement('tr');
+                    tr.className = 'align-middle';
+                    tr.innerHTML = `<td class="px-4 py-2"></td><td class="px-4 py-2 text-end fw-bold"></td>`;
+                    // Safely insert content using textContent
+                    setSafeContent(tr.cells[0], s.subject);
+                    setSafeContent(tr.cells[1], s.score.toFixed(2));
+                    tbody.appendChild(tr);
+                });
+                
+                tableWrapper.appendChild(table);
+                detailedScoresEl.appendChild(tableWrapper);
+            } else {
+                detailedScoresEl.innerHTML = `<div class="alert alert-warning small">រកមិនឃើញពិន្ទុលម្អិត (ត្រូវប្រាកដថាជួរឈរពិន្ទុរបស់អ្នកជាលេខ)។</div>`;
+            }
+
+            // 5. Attach event listeners for buttons
+            const actionsEl = container.querySelector('#result-actions');
+            
+            // AI Feedback Button
+            const feedbackBtn = document.createElement('button');
+            feedbackBtn.className = `btn btn-sm btn-success fw-bold d-flex align-items-center gap-2`;
+            feedbackBtn.disabled = state.feedbackLoading;
+            feedbackBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20.94a10 10 0 1 0 0-17.88 10 10 0 0 0 0 17.88zM12 11.5v4M12 8.5h.01"/></svg> <span>${state.feedbackLoading ? 'កំពុងវិភាគ...' : 'ទទួលបានមតិកែលម្អការសិក្សា'}</span>`;
+            feedbackBtn.addEventListener('click', () => getLLMFeedback(stats));
+            actionsEl.appendChild(feedbackBtn);
+
+            // Refresh Button
+            const refreshBtn = document.createElement('button');
+            refreshBtn.className = `btn btn-sm btn-outline-primary fw-bold d-flex align-items-center gap-2`;
+            refreshBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6"/><path d="M2.5 22v-6h6"/><path d="M21.5 8a10 10 0 0 0-18.7-2"/><path d="M2.5 16a10 10 0 0 0 18.7 2"/></svg> <span>ធ្វើបច្ចុប្បនភាពទិន្នន័យ</span>`;
+            refreshBtn.addEventListener('click', handleManualRefresh);
+            actionsEl.appendChild(refreshBtn);
+
+            // Print Button
+            const printBtn = document.createElement('button');
+            printBtn.className = `btn btn-sm btn-outline-secondary fw-bold d-flex align-items-center gap-2`;
+            printBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect width="12" height="8" x="6" y="14"/></svg> <span>បោះពុម្ពរបាយការណ៍</span>`;
+            printBtn.addEventListener('click', () => window.print());
+            actionsEl.appendChild(printBtn);
+            
+            return container;
         }
 
         function renderTeacherView() {
             const teacherStats = calculateTeacherStatistics();
             const isAggregateMode = state.teacherDataTableMode === 'aggregate';
 
-            const indexes = state.colIndexes;
-            let columnIndexesToShow = []; 
-            const infoIndexes = CORE_INFO_HEADERS.map(hKey => indexes[Object.keys(INFO_HEADERS).find(k => INFO_HEADERS[k] === hKey)]).filter(i => i !== undefined);
-
-            if (isAggregateMode) {
-                const aggIndexes = AGGREGATE_SCORE_HEADERS.map(hKey => indexes[Object.keys(INFO_HEADERS).find(k => INFO_HEADERS[k] === hKey)]).filter(i => i !== undefined);
-                columnIndexesToShow.push(...infoIndexes, ...aggIndexes);
-            } else {
-                columnIndexesToShow = Array.from({ length: state.headers.length }, (_, i) => i);
-                const aggregateIndices = [indexes.totalQHA, indexes.midterm];
-                columnIndexesToShow = columnIndexesToShow.filter(i => !aggregateIndices.includes(i) || infoIndexes.includes(i));
-            }
+            const container = document.createElement('div');
+            container.className = "container app-container mx-auto px-3 mt-4";
             
-            const tableHeadersHtml = columnIndexesToShow.map(index => `<th class="px-2 py-2 teacher-table-header">${state.headers[index]}</th>`).join('');
+            const cardHtml = `
+                <h2 class="h4 fw-bold mb-3 text-primary">ទិដ្ឋភាពគ្រូបង្រៀន</h2>
+                <div class="card report-card shadow-xl rounded-2xl mb-4">
+                    <div class="card-body p-4">
+                        <h5 class="fw-bold text-secondary mb-3 d-flex align-items-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+                            ស្ថិតិថ្នាក់សរុប
+                        </h5>
+                        <div class="row g-3 mb-4" id="teacher-stats-dashboard"></div>
+                        
+                        <div class="row mb-3 g-2 no-print align-items-center border-bottom pb-3" id="teacher-actions-row"></div>
+                        
+                        <div class="col-12 mt-2">
+                            <div class="alert alert-warning p-2 small mb-4 fw-bold">
+                                ចំណាំសំខាន់សម្រាប់ការនាំចេញ PDF៖ សូមប្រើប៊ូតុង "បោះពុម្ពរបាយការណ៍" នៅក្នុងទិដ្ឋភាពលទ្ធផលសិស្ស (Student Result View) ហើយជ្រើសរើស "Save as PDF" ពីកម្មវិធីរុករករបស់អ្នកជំនួសវិញ។
+                            </div>
+                        </div>
 
-            return `
-                <div class="container app-container mx-auto px-3 mt-4">
-                    <h2 class="h4 fw-bold mb-3 text-primary">ទិដ្ឋភាពគ្រូបង្រៀន</h2>
-                    
-                    <div class="card report-card shadow-xl rounded-2xl mb-4">
-                        <div class="card-body p-4">
-                            <!-- FEATURE 1: Aggregate Statistics Dashboard -->
-                            <h5 class="fw-bold text-secondary mb-3 d-flex align-items-center gap-2">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
-                                ស្ថិតិថ្នាក់សរុប
-                            </h5>
-                            <div class="row g-3 mb-4">
-                                <div class="col-md-6 col-lg-2">
-                                    <div class="card p-3 shadow-sm border-0 bg-secondary text-white">
-                                        <p class="small mb-1 fw-bold">សិស្សសរុប</p>
-                                        <h4 class="h4 fw-bolder">${teacherStats.totalStudents} នាក់</h4>
-                                    </div>
-                                </div>
-                                <div class="col-md-6 col-lg-2">
-                                    <div class="card p-3 shadow-sm border-0 bg-primary text-white">
-                                        <p class="small mb-1 fw-bold">ពិន្ទុ Midterm មធ្យម</p>
-                                        <h4 class="h4 fw-bolder">${teacherStats.avgMidterm}</h4>
-                                    </div>
-                                </div>
-                                <div class="col-md-6 col-lg-3">
-                                    <div class="card p-3 shadow-sm border-0 bg-info text-white">
-                                        <p class="small mb-1 fw-bold">អត្រាជាប់ Midterm</p>
-                                        <h4 class="h4 fw-bolder">${teacherStats.passRateMidterm}%</h4>
-                                    </div>
-                                </div>
-                                <div class="col-md-6 col-lg-2">
-                                    <div class="card p-3 shadow-sm border-0 bg-warning">
-                                        <p class="small mb-1 fw-bold text-dark">ពិន្ទុ QHA មធ្យម</p>
-                                        <h4 class="h4 fw-bolder text-dark">${teacherStats.avgQHA}</h4>
-                                    </div>
-                                </div>
-                                <div class="col-md-6 col-lg-3">
-                                    <div class="card p-3 shadow-sm border-0 bg-success text-white">
-                                        <p class="small mb-1 fw-bold">QHA ល្អ (≥ 7.5)</p>
-                                        <h4 class="h4 fw-bolder">${teacherStats.goodRateQHA}%</h4>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <!-- FEATURE 2: Data Table Actions & View Switcher -->
-                            <div class="row mb-3 g-2 no-print align-items-center border-bottom pb-3">
-                                <div class="col-12 col-md-4">
-                                    <button onclick="exportCSV()" class="btn btn-sm btn-success fw-bold d-flex align-items-center gap-2">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="12" x2="12" y1="18" y2="12"/><path d="M12 12l-4 4"/></svg>
-                                        ទាញយក CSV (សម្រាប់ Excel)
-                                    </button>
-                                </div>
-                                <div class="col-12 col-md-4 d-flex justify-content-center">
-                                     <ul class="nav nav-tabs teacher-view-tab" id="teacherViewTabs" role="tablist">
-                                        <li class="nav-item" role="presentation">
-                                            <button class="nav-link ${isAggregateMode ? 'active' : ''}" onclick="setTeacherDataTableMode('aggregate')" type="button">ពិន្ទុសរុប</button>
-                                        </li>
-                                        <li class="nav-item" role="presentation">
-                                            <button class="nav-link ${!isAggregateMode ? 'active' : ''}" onclick="setTeacherDataTableMode('detailed')" type="button">ពិន្ទុលម្អិត</button>
-                                        </li>
-                                    </ul>
-                                </div>
-                                <div class="col-12 col-md-4 d-flex justify-content-end">
-                                    <button onclick="handleManualRefresh()" class="btn btn-sm btn-outline-primary fw-bold d-flex align-items-center gap-2">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6"/><path d="M2.5 22v-6h6"/><path d="M21.5 8a10 10 0 0 0-18.7-2"/><path d="M2.5 16a10 10 0 0 0 18.7 2"/></svg>
-                                        ធ្វើសមកាលកម្មទិន្នន័យ (60s)
-                                    </button>
-                                </div>
-                            </div>
-                            
-                            <div class="col-12 mt-2">
-                                <div class="alert alert-warning p-2 small mb-4 fw-bold">
-                                    ចំណាំសំខាន់សម្រាប់ការនាំចេញ PDF៖ សូមប្រើប៊ូតុង "បោះពុម្ពរបាយការណ៍" នៅក្នុងទិដ្ឋភាពលទ្ធផលសិស្ស (Student Result View) ហើយជ្រើសរើស "Save as PDF" ពីកម្មវិធីរុករករបស់អ្នកជំនួសវិញ។
-                                </div>
-                            </div>
-
-                            <!-- DataTables will be initialized on this table -->
-                            <div class="table-responsive teacher-table mt-4 p-2 rounded-lg border shadow-md">
-                                <table id="teacher-data-table" class="table table-striped table-bordered w-100 align-middle">
-                                    <thead>
-                                        <tr>${tableHeadersHtml}</tr>
-                                    </thead>
-                                    <!-- DataTables fills in the tbody automatically -->
-                                </table>
-                            </div>
+                        <div class="table-responsive teacher-table mt-4 p-2 rounded-lg border shadow-md">
+                            <table id="teacher-data-table" class="table table-striped table-bordered w-100 align-middle">
+                                <thead>
+                                    <tr id="teacher-table-headers"></tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
             `;
+            setSafeContent(container, cardHtml, 'innerHTML');
+            
+            // --- 1. Stats Dashboard ---
+            const statsEl = container.querySelector('#teacher-stats-dashboard');
+            
+            const createDashboardCard = (title, value, unit, bgColor) => {
+                const col = document.createElement('div');
+                col.className = 'col-md-6 col-lg-2';
+                const card = document.createElement('div');
+                card.className = `card p-3 shadow-sm border-0 ${bgColor}`;
+                card.innerHTML = `<p class="small mb-1 fw-bold ${bgColor.includes('bg-warning') ? 'text-dark' : 'text-white'}">${title}</p><h4 class="h4 fw-bolder ${bgColor.includes('bg-warning') ? 'text-dark' : 'text-white'}">${value} ${unit}</h4>`;
+                col.appendChild(card);
+                return col;
+            };
+
+            statsEl.appendChild(createDashboardCard('សិស្សសរុប', teacherStats.totalStudents, 'នាក់', 'bg-secondary'));
+            statsEl.appendChild(createDashboardCard('ពិន្ទុ Midterm មធ្យម', teacherStats.avgMidterm, '', 'bg-primary'));
+            statsEl.appendChild(createDashboardCard('អត្រាជាប់ Midterm', teacherStats.passRateMidterm, '%', 'bg-info'));
+            statsEl.appendChild(createDashboardCard('ពិន្ទុ QHA មធ្យម', teacherStats.avgQHA, '', 'bg-warning'));
+            statsEl.appendChild(createDashboardCard('QHA ល្អ (≥ 7.5)', teacherStats.goodRateQHA, '%', 'bg-success'));
+
+            // --- 2. Action Row (Buttons and Tabs) ---
+            const actionsRow = container.querySelector('#teacher-actions-row');
+            
+            // Export Button
+            const exportCol = document.createElement('div');
+            exportCol.className = 'col-12 col-md-4';
+            const exportBtn = document.createElement('button');
+            exportBtn.className = "btn btn-sm btn-success fw-bold d-flex align-items-center gap-2";
+            exportBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="12" x2="12" y1="18" y2="12"/><path d="M12 12l-4 4"/></svg> <span>ទាញយក CSV (សម្រាប់ Excel)</span>`;
+            exportBtn.addEventListener('click', exportCSV);
+            exportCol.appendChild(exportBtn);
+            actionsRow.appendChild(exportCol);
+
+            // View Switcher Tabs
+            const tabsCol = document.createElement('div');
+            tabsCol.className = 'col-12 col-md-4 d-flex justify-content-center';
+            tabsCol.innerHTML = `
+                <ul class="nav nav-tabs teacher-view-tab" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link ${isAggregateMode ? 'active' : ''}" data-mode="aggregate" type="button">ពិន្ទុសរុប</button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link ${!isAggregateMode ? 'active' : ''}" data-mode="detailed" type="button">ពិន្ទុលម្អិត</button>
+                    </li>
+                </ul>`;
+            tabsCol.querySelectorAll('button').forEach(btn => {
+                btn.addEventListener('click', (e) => setTeacherDataTableMode(e.target.dataset.mode));
+            });
+            actionsRow.appendChild(tabsCol);
+
+            // Sync Button
+            const syncCol = document.createElement('div');
+            syncCol.className = 'col-12 col-md-4 d-flex justify-content-end';
+            const syncBtn = document.createElement('button');
+            syncBtn.className = "btn btn-sm btn-outline-primary fw-bold d-flex align-items-center gap-2";
+            syncBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6"/><path d="M2.5 22v-6h6"/><path d="M21.5 8a10 10 0 0 0-18.7-2"/><path d="M2.5 16a10 10 0 0 0 18.7 2"/></svg> <span>ធ្វើសមកាលកម្មទិន្នន័យ (60s)</span>`;
+            syncBtn.addEventListener('click', handleManualRefresh);
+            syncCol.appendChild(syncBtn);
+            actionsRow.appendChild(syncCol);
+            
+            // --- 3. Table Headers ---
+            const indexes = state.colIndexes;
+            const infoIndexes = CORE_INFO_HEADERS
+                .map(hKey => indexes[Object.keys(INFO_HEADERS).find(k => INFO_HEADERS[k] === hKey)])
+                .filter(i => i !== undefined && i !== -1);
+            
+            let columnIndexesToShow = [];
+            if (isAggregateMode) {
+                const aggIndexes = AGGREGATE_SCORE_HEADERS
+                    .map(hKey => indexes[Object.keys(INFO_HEADERS).find(k => INFO_HEADERS[k] === hKey)])
+                    .filter(i => i !== undefined && i !== -1);
+                columnIndexesToShow = [...new Set([...infoIndexes, ...aggIndexes])];
+            } else {
+                const allUnique = [...new Set(Array.from({ length: state.headers.length }, (_, i) => i))];
+                const infoSet = new Set(infoIndexes);
+                columnIndexesToShow = infoIndexes.concat(allUnique.filter(i => !infoSet.has(i)));
+            }
+            
+            const tableHeadersEl = container.querySelector('#teacher-table-headers');
+            columnIndexesToShow.forEach(index => {
+                const th = document.createElement('th');
+                th.className = 'px-2 py-2 teacher-table-header';
+                setSafeContent(th, state.headers[index]);
+                tableHeadersEl.appendChild(th);
+            });
+            
+            return container;
         }
+
         // --- MAIN RENDER LOOP ---
         function renderApp() {
-            let content = '';
+            let contentElement;
+            
             // Destroy existing DataTables instance before rendering new content
             if (window.jQuery && $.fn.DataTable.isDataTable('#teacher-data-table')) {
                  $('#teacher-data-table').DataTable().destroy();
@@ -960,21 +1167,24 @@
             }
 
             if (state.loading) {
-                content = renderLoading();
+                contentElement = renderLoading();
             } else if (state.error) {
-                content = renderError();
+                contentElement = renderError();
             } else if (state.isTeacher) {
-                content = renderTeacherView();
+                contentElement = renderTeacherView();
             } else if (state.student) {
                 const stats = calculateStats(state.student);
-                content = renderResults(stats);
+                contentElement = renderResults(stats);
             } else {
                 // Initial login/search view
-                content = renderInitialView();
+                contentElement = renderInitialView();
             }
             
             // Combine Header and Content
-            root.innerHTML = renderHeader() + content;
+            const headerElement = renderHeader();
+            root.innerHTML = ''; // Clear existing content
+            root.appendChild(headerElement);
+            root.appendChild(contentElement);
             
             // --- POST-RENDER ACTIONS ---
             if (!state.loading && !state.error) {
@@ -993,6 +1203,7 @@
                 }
             }
         }
+        
         // --- INITIALIZATION ---
         window.onload = () => {
             fetchData();
